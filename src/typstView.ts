@@ -8,7 +8,7 @@ import {
 } from "obsidian";
 import { TypstEditor } from "./typstEditor";
 import TypstForObsidian from "./main";
-import { PdfRenderer } from "./pdfRenderer";
+import { PdfRenderer, SourceClickHandler } from "./pdfRenderer";
 import { ViewActionBar } from "./ui/viewActionBar";
 import { EditorStateManager } from "./editorStateManager";
 import { CompilationManager, CompilationResult } from "./compilationManager";
@@ -615,6 +615,15 @@ export class TypstView extends TextFileView {
       },
     );
 
+    this.typstEditor.onCtrlClick = async (line: number, col: number) => {
+      const adjustedLine = line + this.getLineOffset();
+      const pos = await this.plugin.jumpFromCursor(adjustedLine, col);
+      if (!pos) return;
+      const targetView =
+        this.pairedView ?? this.findViewForFile("reading");
+      targetView?.scrollPdfToPosition(pos.page, pos.x, pos.y);
+    };
+
     try {
       await this.typstEditor.initialize(this.fileContent);
     } catch (err) {
@@ -682,6 +691,57 @@ export class TypstView extends TextFileView {
     }
   }
 
+  private getLineOffset(): number {
+    if (this.plugin.settings.useDefaultLayoutFunctions) {
+      return (
+        (this.plugin.settings.customLayoutFunctions.match(/\n/g) || []).length +
+        1
+      );
+    }
+    return 1;
+  }
+
+  private findViewForFile(mode: "source" | "reading"): TypstView | null {
+    let found: TypstView | null = null;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (found) return;
+      if (
+        leaf.view instanceof TypstView &&
+        leaf.view !== this &&
+        (leaf.view as TypstView).getCurrentMode() === mode &&
+        (leaf.view as TypstView).file?.path === this.file?.path
+      ) {
+        found = leaf.view as TypstView;
+      }
+    });
+    return found;
+  }
+
+  public navigateEditorToLine(line: number, col: number): void {
+    setTimeout(() => {
+      if (this.typstEditor) {
+        this.typstEditor.goToLine(line, col);
+      }
+    }, 50);
+  }
+
+  public scrollPdfToPosition(page: number, x: number, y: number): void {
+    this.pdfRenderer.scrollToPosition(page, x, y);
+  }
+
+  public async jumpToSource(line: number, col: number): Promise<void> {
+    const adjustedLine = Math.max(1, line - this.getLineOffset());
+
+    if (this.currentMode !== "source") {
+      await this.switchToSourceMode();
+    }
+    setTimeout(() => {
+      if (this.typstEditor) {
+        this.typstEditor.goToLine(adjustedLine, col);
+      }
+    }, 50);
+  }
+
   private async showReadingMode(pdfData: Uint8Array): Promise<void> {
     const contentEl = this.getContentElement();
     if (!contentEl) return;
@@ -701,6 +761,15 @@ export class TypstView extends TextFileView {
 
     const readingDiv = contentEl.createDiv("typst-reading-mode");
 
+    const onSourceClick: SourceClickHandler = async (page, x, y) => {
+      const pos = await this.plugin.jumpFromClick(page, x, y);
+      if (!pos) return;
+      const adjustedLine = Math.max(1, pos.line - this.getLineOffset());
+      const targetView =
+        this.pairedView ?? this.findViewForFile("source");
+      targetView?.navigateEditorToLine(adjustedLine, pos.col);
+    };
+
     try {
       await this.pdfRenderer.renderPdf(
         pdfData,
@@ -715,6 +784,7 @@ export class TypstView extends TextFileView {
             );
           }
         },
+        onSourceClick,
       );
       this.restoreReadingScroll(contentEl);
     } catch (error) {

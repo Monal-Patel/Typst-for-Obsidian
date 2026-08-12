@@ -135,6 +135,37 @@ onmessage = (ev: MessageEvent<Message>) => {
     case "packages":
       packages = message.data;
       break;
+    case "jump_from_click":
+      if (!compiler) {
+        postMessage({ type: "jump_result", result: null, id: message.data.id });
+        return;
+      }
+      try {
+        const result = compiler.jump_from_click(
+          message.data.page,
+          message.data.x,
+          message.data.y,
+        );
+        postMessage({ type: "jump_result", result, id: message.data.id });
+      } catch (error) {
+        postMessage({ type: "jump_result", result: null, id: message.data.id });
+      }
+      break;
+    case "jump_from_cursor":
+      if (!compiler) {
+        postMessage({ type: "cursor_result", result: null, id: message.data.id });
+        return;
+      }
+      try {
+        const result = compiler.jump_from_cursor(
+          message.data.line,
+          message.data.col,
+        );
+        postMessage({ type: "cursor_result", result, id: message.data.id });
+      } catch (error) {
+        postMessage({ type: "cursor_result", result: null, id: message.data.id });
+      }
+      break;
     default:
       console.error("Worker: Unknown message type:", message);
       throw message;

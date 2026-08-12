@@ -15,6 +15,7 @@ wasm-opt = false
 
 [dependencies]
 typst = "0.14.2"
+typst-ide = "0.14.2"
 typst-render = "0.14.2"
 typst-svg = "0.14.2"
 typst-pdf = "0.14.2"

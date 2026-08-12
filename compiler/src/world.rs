@@ -219,6 +219,12 @@ impl SystemWorld {
     }
 }
 
+impl typst_ide::IdeWorld for SystemWorld {
+    fn upcast(&self) -> &dyn World {
+        self
+    }
+}
+
 impl World for SystemWorld {
     fn library(&self) -> &LazyHash<Library> {
         &self.library

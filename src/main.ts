@@ -230,6 +230,55 @@ export default class TypstForObsidian extends Plugin {
     this.app.metadataCache.trigger("resolve", typstFile);
   }
 
+  private jumpSeq = 0;
+
+  async jumpFromCursor(
+    line: number,
+    col: number,
+  ): Promise<{ page: number; x: number; y: number } | null> {
+    const id = ++this.jumpSeq;
+    this.compilerWorker.postMessage({
+      type: "jump_from_cursor",
+      data: { line, col, id },
+    });
+    return new Promise((resolve) => {
+      const listener = (ev: MessageEvent) => {
+        if (!ev.data || ev.data.type !== "cursor_result" || ev.data.id !== id)
+          return;
+        this.compilerWorker.removeEventListener("message", listener);
+        const r = ev.data.result;
+        resolve(r && typeof r.page === "number"
+          ? { page: r.page, x: r.x, y: r.y }
+          : null);
+      };
+      this.compilerWorker.addEventListener("message", listener);
+    });
+  }
+
+  async jumpFromClick(
+    page: number,
+    x: number,
+    y: number,
+  ): Promise<{ line: number; col: number } | null> {
+    const id = ++this.jumpSeq;
+    this.compilerWorker.postMessage({
+      type: "jump_from_click",
+      data: { page, x, y, id },
+    });
+    return new Promise((resolve) => {
+      const listener = (ev: MessageEvent) => {
+        if (!ev.data || ev.data.type !== "jump_result" || ev.data.id !== id)
+          return;
+        this.compilerWorker.removeEventListener("message", listener);
+        const r = ev.data.result;
+        resolve(r && typeof r.line === "number" && typeof r.col === "number"
+          ? { line: r.line, col: r.col }
+          : null);
+      };
+      this.compilerWorker.addEventListener("message", listener);
+    });
+  }
+
   async recompileAllReadingViews(): Promise<void> {
     const promises: Promise<void>[] = [];
     this.app.workspace.iterateAllLeaves((leaf) => {

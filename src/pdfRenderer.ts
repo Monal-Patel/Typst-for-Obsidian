@@ -8,6 +8,12 @@ export type BacklinkClickHandler = (
   newTab: boolean,
 ) => void;
 
+export type SourceClickHandler = (
+  page: number,
+  x: number,
+  y: number,
+) => void;
+
 interface PageDims {
   width: number;
   height: number;
@@ -22,8 +28,26 @@ export class PdfRenderer {
   private activeObserver: IntersectionObserver | null = null;
   private activeDocPtr: number = 0;
   private activeFilePtr: number = 0;
+  private renderedContainer: HTMLElement | null = null;
+  private renderedScale: number = 1.5;
 
   constructor() {}
+
+  public scrollToPosition(page: number, x: number, y: number): void {
+    if (!this.renderedContainer) return;
+    const pages = this.renderedContainer.querySelectorAll(".typst-pdf-page");
+    const pageEl = pages[page] as HTMLElement | undefined;
+    if (!pageEl) return;
+    const scrollContainer = this.renderedContainer.closest(
+      ".view-content",
+    ) as HTMLElement | null;
+    if (!scrollContainer) return;
+    const targetY = pageEl.offsetTop + y * this.renderedScale;
+    scrollContainer.scrollTo({
+      top: targetY - scrollContainer.clientHeight / 2,
+      behavior: "smooth",
+    });
+  }
 
   private async ensurePdfiumInitialized(): Promise<void> {
     if (this.pdfium) return;
@@ -70,6 +94,7 @@ export class PdfRenderer {
       (this.pdfium.pdfium as any).wasmExports.free(this.activeFilePtr);
       this.activeFilePtr = 0;
     }
+    this.renderedContainer = null;
   }
 
   async renderPdf(
@@ -77,6 +102,7 @@ export class PdfRenderer {
     container: HTMLElement,
     enableTextLayer: boolean = true,
     onBacklinkClick?: BacklinkClickHandler,
+    onSourceClick?: SourceClickHandler,
   ): Promise<void> {
     try {
       await this.ensurePdfiumInitialized();
@@ -111,6 +137,8 @@ export class PdfRenderer {
 
       const scale = 1.5;
       const dpr = window.devicePixelRatio || 1;
+      this.renderedContainer = container;
+      this.renderedScale = scale;
 
       // Collect all page dimensions up-front (no rendering — just floats)
       const pageDims: PageDims[] = [];
@@ -174,6 +202,7 @@ export class PdfRenderer {
                 dpr,
                 enableTextLayer,
                 onBacklinkClick,
+                onSourceClick,
               )
                 .then(tryFinalCleanup)
                 .catch((err) => {
@@ -204,6 +233,7 @@ export class PdfRenderer {
     dpr: number,
     enableTextLayer: boolean,
     onBacklinkClick?: BacklinkClickHandler,
+    onSourceClick?: SourceClickHandler,
   ): Promise<void> {
     if (!this.pdfium || this.activeDocPtr !== docPtr) return;
 
@@ -280,10 +310,12 @@ export class PdfRenderer {
           await this.renderTextLayer(
             pagePtr,
             pageContainer,
+            pageIndex,
             width,
             height,
             scale,
             dpr,
+            onSourceClick,
           );
           await this.renderLinkLayer(
             docPtr,
@@ -309,10 +341,12 @@ export class PdfRenderer {
   private async renderTextLayer(
     pagePtr: number,
     pageContainer: HTMLElement,
+    pageIndex: number,
     pageWidth: number,
     pageHeight: number,
     scale: number,
     dpr: number,
+    onSourceClick?: SourceClickHandler,
   ): Promise<void> {
     if (!this.pdfium) return;
 
@@ -327,6 +361,18 @@ export class PdfRenderer {
       if (charCount <= 0) return;
 
       const textLayerDiv = pageContainer.createDiv("textLayer");
+
+      if (onSourceClick) {
+        textLayerDiv.addEventListener("click", (e: MouseEvent) => {
+          if (!e.ctrlKey && !e.metaKey) return;
+          e.preventDefault();
+          const rect = pageContainer.getBoundingClientRect();
+          const cssX = e.clientX - rect.left;
+          const cssY = e.clientY - rect.top;
+          onSourceClick(pageIndex, cssX / scale, cssY / scale);
+        });
+      }
+
       const rectCount = this.pdfium.FPDFText_CountRects(
         textPagePtr,
         0,

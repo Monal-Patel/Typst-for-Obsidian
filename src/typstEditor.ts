@@ -22,6 +22,7 @@ export class TypstEditor {
   private snippetManager: SnippetManager;
   private completionDisposable: monaco.IDisposable | null = null;
   private backlinkCompletionDisposable: monaco.IDisposable | null = null;
+  onCtrlClick?: (line: number, col: number) => void;
 
   constructor(
     container: HTMLElement,
@@ -120,6 +121,16 @@ export class TypstEditor {
 
     this.registerSnippets();
     this.registerBacklinkCompletion();
+
+    this.monacoEditor.onMouseDown((e) => {
+      if (!(e.event.ctrlKey || e.event.metaKey)) return;
+      if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) return;
+      const pos = e.target.position;
+      if (pos && this.onCtrlClick) {
+        e.event.preventDefault();
+        this.onCtrlClick(pos.lineNumber, pos.column);
+      }
+    });
 
     this.monacoEditor.onDidChangeModelContent(() => {
       if (this.monacoEditor) {
