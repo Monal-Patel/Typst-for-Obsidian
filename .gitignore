@@ -15,3 +15,7 @@ compiler/target/
 styles.css
 
 .env
+
+data.json
+onig.wasm
+packages/

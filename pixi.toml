@@ -1,0 +1,21 @@
+[workspace]
+name = "typst-for-obsidian"
+version = "0.0.9"
+description = "Typst editor integrated into Obsidian"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+nodejs = ">=20"
+
+[tasks]
+install = "npm install --ignore-scripts"
+dev = "npm run dev"
+build = "npm run build"
+build-deploy = "npm run build:deploy"
+build-grammar = "npm run build:grammar"
+wasm = "wasm-pack build compiler --target web --out-dir ../pkg"
+wasm-dev = "wasm-pack build compiler --target web --dev --out-dir ../pkg"
+wasm-build = { depends-on = ["wasm"], cmd = "npm run build" }
+wasm-build-dev = { depends-on = ["wasm-dev"], cmd = "npm run dev" }
+test = "npm test"
