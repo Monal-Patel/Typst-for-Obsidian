@@ -7,6 +7,8 @@ import {
   TFolder,
   TFile,
   normalizePath,
+  getLinkpath,
+  parseLinktext,
 } from "obsidian";
 import { TypstView } from "./typstView";
 import { registerCommands } from "./settings/commands";
@@ -65,7 +67,11 @@ export default class TypstForObsidian extends Plugin {
       this.settings.fontFamilies,
     );
 
-    if (!(await this.app.vault.adapter.exists(this.wasmPath))) {
+    const pkgWasmPath = this.pluginPath + "pkg/obsidian_typst_bg.wasm";
+    const devWasmExists = await this.app.vault.adapter.exists(pkgWasmPath);
+    const effectiveWasmPath = devWasmExists ? pkgWasmPath : this.wasmPath;
+
+    if (!devWasmExists && !(await this.app.vault.adapter.exists(this.wasmPath))) {
       try {
         await this.fetchWasm();
       } catch (error) {
@@ -80,9 +86,10 @@ export default class TypstForObsidian extends Plugin {
       type: "startup",
       data: {
         wasm: URL.createObjectURL(
-          new Blob([await this.app.vault.adapter.readBinary(this.wasmPath)], {
-            type: "application/wasm",
-          }),
+          new Blob(
+            [await this.app.vault.adapter.readBinary(effectiveWasmPath)],
+            { type: "application/wasm" },
+          ),
         ),
         // @ts-ignore
         basePath: this.app.vault.adapter.basePath,
@@ -120,6 +127,33 @@ export default class TypstForObsidian extends Plugin {
         await this.onThemeChange();
       }),
     );
+
+    this.registerEvent(
+      this.app.vault.on("modify", async (file) => {
+        if (file instanceof TFile && file.extension === "bib") {
+          await this.recompileAllReadingViews();
+        }
+      }),
+    );
+
+    this.registerEvent(
+      this.app.vault.on("modify", async (file) => {
+        if (file instanceof TFile && file.extension === "typ") {
+          const source = await this.app.vault.cachedRead(file);
+          this.updateTypstFileLinks(file, source);
+        }
+      }),
+    );
+
+    this.app.workspace.onLayoutReady(async () => {
+      const typFiles = this.app.vault.getFiles().filter(
+        (f) => f.extension === "typ",
+      );
+      for (const file of typFiles) {
+        const source = await this.app.vault.cachedRead(file);
+        this.updateTypstFileLinks(file, source);
+      }
+    });
 
     this.registerDomEvent(document, "click", (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -178,6 +212,32 @@ export default class TypstForObsidian extends Plugin {
         }
       }),
     );
+  }
+
+  private updateTypstFileLinks(typstFile: TFile, source: string): void {
+    const links: Record<string, number> = {};
+    for (const [, inner] of source.matchAll(/\[\[([^\[\]]+)\]\]/g)) {
+      const { path: linkPath } = parseLinktext(inner);
+      const target = this.app.metadataCache.getFirstLinkpathDest(
+        getLinkpath(linkPath),
+        typstFile.path,
+      );
+      if (target) {
+        links[target.path] = (links[target.path] || 0) + 1;
+      }
+    }
+    (this.app.metadataCache as any).resolvedLinks[typstFile.path] = links;
+    this.app.metadataCache.trigger("resolve", typstFile);
+  }
+
+  async recompileAllReadingViews(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof TypstView) {
+        promises.push((leaf.view as TypstView).recompileIfInReadingMode());
+      }
+    });
+    await Promise.all(promises);
   }
 
   async reloadFonts(): Promise<void> {

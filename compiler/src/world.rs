@@ -80,6 +80,7 @@ impl SystemWorld {
     }
 
     fn reset(&mut self) {
+        self.files.get_mut().clear();
         self.packages.get_mut().clear();
         self.now.take();
     }
