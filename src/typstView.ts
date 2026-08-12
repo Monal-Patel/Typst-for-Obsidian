@@ -22,6 +22,8 @@ export class TypstView extends TextFileView {
   private typstEditor: TypstEditor | null = null;
   private fileContent: string = "";
   private lastPdfHash: number = 0;
+  private cachedPdfContent: string | null = null;
+  private cachedPdfBytes: Uint8Array | null = null;
   private plugin: TypstForObsidian;
   private pdfRenderer: PdfRenderer;
   private actionBar: ViewActionBar | null = null;
@@ -73,6 +75,7 @@ export class TypstView extends TextFileView {
     await super.onOpen();
     this.initializeActionBar();
     this.registerHotkeys();
+    this.pdfRenderer.preInitialize();
 
     const viewContent = this.getContentElement();
     if (viewContent) {
@@ -471,18 +474,18 @@ export class TypstView extends TextFileView {
 
   private async compile(): Promise<Uint8Array | null> {
     const content = this.getViewData();
+
+    if (this.cachedPdfContent === content && this.cachedPdfBytes) {
+      return this.cachedPdfBytes;
+    }
+
     try {
       const filePath = this.file?.path || "/main.typ";
-
-      if (this.livePreviewActive && this.plugin.settings.enableLivePreview) {
-        const result = await this.plugin.compileToPdf(content, filePath);
-        this.clearErrors();
-        return result;
-      } else {
-        const result = await this.plugin.compileToPdf(content, filePath);
-        this.clearErrors();
-        return result;
-      }
+      const result = await this.plugin.compileToPdf(content, filePath);
+      this.clearErrors();
+      this.cachedPdfContent = content;
+      this.cachedPdfBytes = result;
+      return result;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error("Compilation error:", errorMsg);
@@ -632,6 +635,7 @@ export class TypstView extends TextFileView {
   }
 
   private handleContentChange(content: string): void {
+    this.cachedPdfContent = null;
     this.requestSave();
 
     if (
@@ -757,6 +761,11 @@ export class TypstView extends TextFileView {
     if (newHash === this.lastPdfHash && existingReadingDiv) {
       this.restoreReadingScroll(existingReadingDiv as HTMLElement);
       return;
+    }
+
+    const existingReading = contentEl.querySelector(".typst-reading-mode") as HTMLElement | null;
+    if (existingReading) {
+      this.stateManager.saveReadingScrollTop(existingReading);
     }
 
     this.lastPdfHash = newHash;

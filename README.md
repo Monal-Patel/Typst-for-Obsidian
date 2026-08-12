@@ -166,8 +166,8 @@ Contributions are welcome, feel free to open issues or submit pull requests for 
 - [x] Editor font size setting
 - [x] Insert snippet command
 - [x] Support for more template variables
-- [ ] Formatter for Typst code
-- [ ] Add support for jumping from preview/PDF to source by clicking on text
+- [x] Formatter for Typst code
+- [x] Add support for jumping from preview/PDF to source by clicking on text
 - [x] For references in .bib, load them again without need of closing obsidian
 - [x] Add backlink support
     - Backlinks in live preview/reading mode (done)
@@ -180,7 +180,7 @@ Contributions are welcome, feel free to open issues or submit pull requests for 
 - [ ] Test and ensure support for all popular Typst packages
 - [ ] Add support for rendering Typst code in fenced code blocks
 - [ ] Better incremental compilation
-- [ ] Editor spellchecker
+- [ ] Editor spellcheckers
 - [ ] Organize code...
 
 ## Acknowledgements

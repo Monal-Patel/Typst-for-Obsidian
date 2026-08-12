@@ -33,6 +33,10 @@ export class PdfRenderer {
 
   constructor() {}
 
+  public preInitialize(): void {
+    this.ensurePdfiumInitialized().catch(() => {});
+  }
+
   public scrollToPosition(page: number, x: number, y: number): void {
     if (!this.renderedContainer) return;
     const pages = this.renderedContainer.querySelectorAll(".typst-pdf-page");
