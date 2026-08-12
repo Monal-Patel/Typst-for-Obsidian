@@ -39,7 +39,7 @@ export class PdfRenderer {
     const pageEl = pages[page] as HTMLElement | undefined;
     if (!pageEl) return;
     const scrollContainer = this.renderedContainer.closest(
-      ".view-content",
+      ".typst-reading-mode",
     ) as HTMLElement | null;
     if (!scrollContainer) return;
     const targetY = pageEl.offsetTop + y * this.renderedScale;
@@ -180,8 +180,6 @@ export class PdfRenderer {
         }
       };
 
-      const scrollRoot = container.closest(".view-content") as HTMLElement | null;
-
       this.activeObserver = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -212,7 +210,7 @@ export class PdfRenderer {
             }
           }
         },
-        { rootMargin: "200px 0px", root: scrollRoot },
+        { rootMargin: "200px 0px", root: container },
       );
 
       for (const { div } of placeholders) {

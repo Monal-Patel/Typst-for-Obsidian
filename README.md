@@ -154,28 +154,28 @@ Contributions are welcome, feel free to open issues or submit pull requests for 
 
 ## Future Plans/Issues to Fix
 
-- [ ] **Improve performance of PDF rendering**
+- [x] Improve performance of PDF rendering
 - [x] Add "New Typst File" to context menu
 - [x] Turn off live preview button when live preview is disabled
 - [x] Open live preview in split pane hotkey
 - [x] Open PDF in split pane button + hotkey
 - [x] Editor zoom level
-- [ ] Fix problems show up on wrong side of split pane
 - [x] Fix pasting
-- [ ] Fix scroll position restoration when toggling modes
+- [x] Fix scroll position restoration when toggling modes
 - [x] More default file modes - open in last mode, split live preview, split PDF
-- [ ] Formatter for Typst code
 - [x] Editor font size setting
 - [x] Insert snippet command
-- [ ] Tinymist LSP support
+- [x] Support for more template variables
+- [ ] Formatter for Typst code
 - [ ] Add support for jumping from preview/PDF to source by clicking on text
-- [ ] Add backlink support
+- [x] For references in .bib, load them again without need of closing obsidian
+- [x] Add backlink support
     - Backlinks in live preview/reading mode (done)
     - Backlinks in exported PDFs (done)
     - Support for linking to Typst files from Typst files, and linking to Typst files from Markdown notes
     - Add linked mentions to backlinks section in sidebar (and graph view)
     - Autocomplete in editor for backlinks (done)
-- [x] Support for more template variables
+- [ ] Tinymist LSP support
 - [ ] Improve error handling and reporting
 - [ ] Test and ensure support for all popular Typst packages
 - [ ] Add support for rendering Typst code in fenced code blocks

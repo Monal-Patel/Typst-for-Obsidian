@@ -653,7 +653,8 @@ export class TypstView extends TextFileView {
       this.stateManager.saveEditorState(this.typstEditor);
     } else if (this.currentMode === "reading") {
       const contentEl = this.getContentElement();
-      this.stateManager.saveReadingScrollTop(contentEl);
+      const readingDiv = contentEl?.querySelector(".typst-reading-mode") as HTMLElement | null;
+      this.stateManager.saveReadingScrollTop(readingDiv ?? contentEl);
     }
   }
 
@@ -750,7 +751,7 @@ export class TypstView extends TextFileView {
     const existingReadingDiv = contentEl.querySelector(".typst-reading-mode");
 
     if (newHash === this.lastPdfHash && existingReadingDiv) {
-      this.restoreReadingScroll(contentEl);
+      this.restoreReadingScroll(existingReadingDiv as HTMLElement);
       return;
     }
 
@@ -786,7 +787,7 @@ export class TypstView extends TextFileView {
         },
         onSourceClick,
       );
-      this.restoreReadingScroll(contentEl);
+      this.restoreReadingScroll(readingDiv);
     } catch (error) {
       console.error("PDF rendering failed:", error);
     }

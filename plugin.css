@@ -366,12 +366,10 @@
 
 .typst-reading-mode {
   padding: var(--file-margins);
-  margin: 0 auto;
   width: 100%;
   background: var(--background-primary);
-  min-height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  height: 100%;
+  overflow: auto;
 }
 
 /* =========================== PDF Page Container =========================== */
