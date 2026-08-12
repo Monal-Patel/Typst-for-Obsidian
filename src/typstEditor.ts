@@ -65,6 +65,12 @@ export class TypstEditor {
     this.monacoEditor.focus();
   }
 
+  public formatDocument(): void {
+    this.monacoEditor
+      ?.getAction("editor.action.formatDocument")
+      ?.run();
+  }
+
   private createEditor(): void {
     this.container.empty();
     this.container.addClass("typst-monaco-editor-container");
@@ -121,6 +127,15 @@ export class TypstEditor {
 
     this.registerSnippets();
     this.registerBacklinkCompletion();
+
+    monaco.languages.registerDocumentFormattingEditProvider("typst", {
+      provideDocumentFormattingEdits: async (model) => {
+        const source = model.getValue();
+        const formatted = await this.plugin.formatSource(source);
+        if (!formatted || formatted === source) return [];
+        return [{ range: model.getFullModelRange(), text: formatted }];
+      },
+    });
 
     this.monacoEditor.onMouseDown((e) => {
       if (!(e.event.ctrlKey || e.event.metaKey)) return;

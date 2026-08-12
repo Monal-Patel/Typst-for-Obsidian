@@ -232,6 +232,23 @@ export default class TypstForObsidian extends Plugin {
 
   private jumpSeq = 0;
 
+  async formatSource(source: string): Promise<string | null> {
+    const id = ++this.jumpSeq;
+    this.compilerWorker.postMessage({
+      type: "format_source",
+      data: { source, id },
+    });
+    return new Promise((resolve) => {
+      const listener = (ev: MessageEvent) => {
+        if (!ev.data || ev.data.type !== "format_result" || ev.data.id !== id)
+          return;
+        this.compilerWorker.removeEventListener("message", listener);
+        resolve(ev.data.result ?? null);
+      };
+      this.compilerWorker.addEventListener("message", listener);
+    });
+  }
+
   async jumpFromCursor(
     line: number,
     col: number,

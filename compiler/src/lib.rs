@@ -144,6 +144,14 @@ impl Compiler {
         line_start + target_col.saturating_sub(1)
     }
 
+    pub fn format_source(&self, source: String) -> String {
+        let typstyle = typstyle_core::Typstyle::default();
+        typstyle
+            .format_text(source.clone())
+            .render()
+            .unwrap_or(source)
+    }
+
     pub fn add_font(&mut self, data: Vec<u8>) {
         self.world.add_font(data);
     }

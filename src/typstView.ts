@@ -718,6 +718,10 @@ export class TypstView extends TextFileView {
     return found;
   }
 
+  public formatDocument(): void {
+    this.typstEditor?.formatDocument();
+  }
+
   public navigateEditorToLine(line: number, col: number): void {
     setTimeout(() => {
       if (this.typstEditor) {

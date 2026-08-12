@@ -151,6 +151,18 @@ onmessage = (ev: MessageEvent<Message>) => {
         postMessage({ type: "jump_result", result: null, id: message.data.id });
       }
       break;
+    case "format_source":
+      if (!compiler) {
+        postMessage({ type: "format_result", result: null, id: message.data.id });
+        return;
+      }
+      try {
+        const result = compiler.format_source(message.data.source);
+        postMessage({ type: "format_result", result, id: message.data.id });
+      } catch (error) {
+        postMessage({ type: "format_result", result: null, id: message.data.id });
+      }
+      break;
     case "jump_from_cursor":
       if (!compiler) {
         postMessage({ type: "cursor_result", result: null, id: message.data.id });

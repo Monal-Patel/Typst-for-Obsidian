@@ -127,6 +127,20 @@ export function registerCommands(plugin: TypstForObsidian) {
   });
 
   plugin.addCommand({
+    id: "format-document",
+    name: "Format document",
+    checkCallback: (checking: boolean) => {
+      const view = plugin.app.workspace.getActiveViewOfType(TypstView);
+      if (!(view instanceof TypstView) || view.getCurrentMode() !== "source") {
+        return false;
+      }
+      if (checking) return true;
+      view.formatDocument();
+      return true;
+    },
+  });
+
+  plugin.addCommand({
     id: "insert-snippet",
     name: "Insert snippet",
     checkCallback: (checking: boolean) => {
