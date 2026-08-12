@@ -8,7 +8,7 @@ export interface EditorState {
 
 export class EditorStateManager {
   private savedEditorState: EditorState | null = null;
-  private savedReadingScrollTop: number = 0;
+  private savedReadingScrollRatio: number = 0;
 
   saveEditorState(editor: TypstEditor | null): void {
     if (editor) {
@@ -21,7 +21,9 @@ export class EditorStateManager {
 
   saveReadingScrollTop(contentEl: HTMLElement | null): void {
     if (contentEl) {
-      this.savedReadingScrollTop = contentEl.scrollTop;
+      const { scrollTop, scrollHeight, clientHeight } = contentEl;
+      const maxScroll = scrollHeight - clientHeight;
+      this.savedReadingScrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
     }
   }
 
@@ -40,21 +42,24 @@ export class EditorStateManager {
   }
 
   restoreReadingScrollTop(contentEl: HTMLElement | null): void {
-    if (this.savedReadingScrollTop > 0 && contentEl) {
+    if (this.savedReadingScrollRatio > 0 && contentEl) {
       setTimeout(() => {
         if (contentEl) {
-          contentEl.scrollTop = this.savedReadingScrollTop;
+          const maxScroll = contentEl.scrollHeight - contentEl.clientHeight;
+          if (maxScroll > 0) {
+            contentEl.scrollTop = this.savedReadingScrollRatio * maxScroll;
+          }
         }
       }, 0);
     }
   }
 
-  getSavedReadingScrollTop(): number {
-    return this.savedReadingScrollTop;
+  getSavedReadingScrollRatio(): number {
+    return this.savedReadingScrollRatio;
   }
 
   clear(): void {
     this.savedEditorState = null;
-    this.savedReadingScrollTop = 0;
+    this.savedReadingScrollRatio = 0;
   }
 }

@@ -8,9 +8,20 @@ export type BacklinkClickHandler = (
   newTab: boolean,
 ) => void;
 
+interface PageDims {
+  width: number;
+  height: number;
+  scaledWidth: number;
+  scaledHeight: number;
+}
+
 export class PdfRenderer {
   private pdfium: WrappedPdfiumModule | null = null;
   private initPromise: Promise<void> | null = null;
+
+  private activeObserver: IntersectionObserver | null = null;
+  private activeDocPtr: number = 0;
+  private activeFilePtr: number = 0;
 
   constructor() {}
 
@@ -46,6 +57,21 @@ export class PdfRenderer {
     }
   }
 
+  cleanup(): void {
+    if (this.activeObserver) {
+      this.activeObserver.disconnect();
+      this.activeObserver = null;
+    }
+    if (this.activeDocPtr && this.pdfium) {
+      this.pdfium.FPDF_CloseDocument(this.activeDocPtr);
+      this.activeDocPtr = 0;
+    }
+    if (this.activeFilePtr && this.pdfium) {
+      (this.pdfium.pdfium as any).wasmExports.free(this.activeFilePtr);
+      this.activeFilePtr = 0;
+    }
+  }
+
   async renderPdf(
     pdfData: Uint8Array,
     container: HTMLElement,
@@ -59,14 +85,12 @@ export class PdfRenderer {
         throw new Error("PDFium not initialized");
       }
 
-      // Allocate memory for the PDF data
-      const filePtr = this.pdfium.pdfium.wasmExports.malloc(pdfData.length);
+      this.cleanup();
 
-      // Write PDF data to WASM memory
       const pdfiumModule = this.pdfium.pdfium as any;
+      const filePtr = this.pdfium.pdfium.wasmExports.malloc(pdfData.length);
       pdfiumModule.HEAPU8.set(pdfData, filePtr);
 
-      // Load the document
       const docPtr = this.pdfium.FPDF_LoadMemDocument(
         filePtr,
         pdfData.length,
@@ -75,28 +99,95 @@ export class PdfRenderer {
 
       if (!docPtr) {
         const error = this.pdfium.FPDF_GetLastError();
-        this.pdfium.pdfium.wasmExports.free(filePtr);
+        pdfiumModule.wasmExports.free(filePtr);
         throw new Error(`Failed to load PDF: ${error}`);
       }
 
-      try {
-        // Get page count
-        const pageCount = this.pdfium.FPDF_GetPageCount(docPtr);
+      this.activeFilePtr = filePtr;
+      this.activeDocPtr = docPtr;
 
-        // Render all pages
-        for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-          await this.renderPage(
-            docPtr,
-            pageIndex,
-            container,
-            enableTextLayer,
-            onBacklinkClick,
-          );
+      const pageCount = this.pdfium.FPDF_GetPageCount(docPtr);
+      if (pageCount === 0) return;
+
+      const scale = 1.5;
+      const dpr = window.devicePixelRatio || 1;
+
+      // Collect all page dimensions up-front (no rendering — just floats)
+      const pageDims: PageDims[] = [];
+      for (let i = 0; i < pageCount; i++) {
+        const pagePtr = this.pdfium.FPDF_LoadPage(docPtr, i);
+        if (pagePtr) {
+          const width = this.pdfium.FPDF_GetPageWidthF(pagePtr);
+          const height = this.pdfium.FPDF_GetPageHeightF(pagePtr);
+          this.pdfium.FPDF_ClosePage(pagePtr);
+          pageDims.push({
+            width,
+            height,
+            scaledWidth: Math.floor(width * scale * dpr),
+            scaledHeight: Math.floor(height * scale * dpr),
+          });
         }
-      } finally {
-        // Clean up document
-        this.pdfium.FPDF_CloseDocument(docPtr);
-        this.pdfium.pdfium.wasmExports.free(filePtr);
+      }
+
+      // Create placeholder divs with correct dimensions so scrollHeight is accurate immediately
+      const placeholders = pageDims.map((dims, i) => {
+        const div = container.createDiv("typst-pdf-page");
+        div.style.position = "relative";
+        div.style.width = `${dims.scaledWidth / dpr}px`;
+        div.style.height = `${dims.scaledHeight / dpr}px`;
+        div.style.marginBottom = "20px";
+        div.style.setProperty("--scale-factor", scale.toString());
+        (div as HTMLElement & { dataset: DOMStringMap }).dataset.pageIndex =
+          String(i);
+        return { div, dims };
+      });
+
+      const renderedSet = new Set<number>();
+      let completedCount = 0;
+
+      const tryFinalCleanup = () => {
+        completedCount++;
+        if (completedCount === pageCount) {
+          this.cleanup();
+        }
+      };
+
+      const scrollRoot = container.closest(".view-content") as HTMLElement | null;
+
+      this.activeObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const el = entry.target as HTMLElement;
+            const idx = parseInt(el.dataset.pageIndex || "0", 10);
+            if (renderedSet.has(idx)) continue;
+            renderedSet.add(idx);
+            this.activeObserver?.unobserve(el);
+            const page = placeholders[idx];
+            if (page) {
+              this.renderPageIntoPlaceholder(
+                el,
+                docPtr,
+                idx,
+                page.dims,
+                scale,
+                dpr,
+                enableTextLayer,
+                onBacklinkClick,
+              )
+                .then(tryFinalCleanup)
+                .catch((err) => {
+                  console.error(`Failed to render page ${idx}:`, err);
+                  tryFinalCleanup();
+                });
+            }
+          }
+        },
+        { rootMargin: "200px 0px", root: scrollRoot },
+      );
+
+      for (const { div } of placeholders) {
+        this.activeObserver.observe(div);
       }
     } catch (error) {
       console.error("PdfRenderer: PDFium rendering failed:", error);
@@ -104,41 +195,26 @@ export class PdfRenderer {
     }
   }
 
-  private async renderPage(
+  private async renderPageIntoPlaceholder(
+    pageContainer: HTMLElement,
     docPtr: number,
     pageIndex: number,
-    container: HTMLElement,
+    dims: PageDims,
+    scale: number,
+    dpr: number,
     enableTextLayer: boolean,
     onBacklinkClick?: BacklinkClickHandler,
   ): Promise<void> {
-    if (!this.pdfium) throw new Error("PDFium not initialized");
+    if (!this.pdfium || this.activeDocPtr !== docPtr) return;
 
-    // Load the page
+    const { width, height, scaledWidth, scaledHeight } = dims;
+
     const pagePtr = this.pdfium.FPDF_LoadPage(docPtr, pageIndex);
     if (!pagePtr) {
       throw new Error(`Failed to load page ${pageIndex}`);
     }
 
     try {
-      // Get page dimensions
-      const width = this.pdfium.FPDF_GetPageWidthF(pagePtr);
-      const height = this.pdfium.FPDF_GetPageHeightF(pagePtr);
-      const scale = 1.5;
-      const dpr = window.devicePixelRatio || 1;
-      const effectiveScale = scale * dpr;
-      const scaledWidth = Math.floor(width * effectiveScale);
-      const scaledHeight = Math.floor(height * effectiveScale);
-
-      // Create page container
-      const pageContainer = container.createDiv("typst-pdf-page");
-      pageContainer.style.position = "relative";
-      pageContainer.style.width = `${scaledWidth / dpr}px`;
-      pageContainer.style.height = `${scaledHeight / dpr}px`;
-      pageContainer.style.marginBottom = "20px";
-      pageContainer.style.setProperty("--scale-factor", scale.toString());
-      pageContainer.style.opacity = "0";
-
-      // Create canvas
       const canvas = pageContainer.createEl("canvas");
       canvas.width = scaledWidth;
       canvas.height = scaledHeight;
@@ -146,7 +222,6 @@ export class PdfRenderer {
       canvas.style.width = `${scaledWidth / dpr}px`;
       canvas.style.height = `${scaledHeight / dpr}px`;
 
-      // Create bitmap for rendering
       const bitmapPtr = this.pdfium.FPDFBitmap_Create(
         scaledWidth,
         scaledHeight,
@@ -173,17 +248,16 @@ export class PdfRenderer {
           0,
           scaledWidth,
           scaledHeight,
-          0, // No rotation
-          0x10 | 0x01 | 0x800, // FPDF_REVERSE_BYTE_ORDER | FPDF_ANNOT | FPDF_LCD_TEXT
+          0,
+          0x10 | 0x01 | 0x800,
         );
 
-        // Get the bitmap buffer
         const bufferPtr = this.pdfium.FPDFBitmap_GetBuffer(bitmapPtr);
         if (!bufferPtr) {
           throw new Error("Failed to get bitmap buffer");
         }
 
-        const bufferSize = scaledWidth * scaledHeight * 4; // RGBA
+        const bufferSize = scaledWidth * scaledHeight * 4;
         const pdfiumModule = this.pdfium.pdfium as any;
         const buffer = new Uint8Array(
           pdfiumModule.HEAPU8.buffer,
@@ -202,7 +276,6 @@ export class PdfRenderer {
         }
         ctx.putImageData(imageData, 0, 0);
 
-        // Render text layer
         if (enableTextLayer) {
           await this.renderTextLayer(
             pagePtr,
@@ -212,8 +285,6 @@ export class PdfRenderer {
             scale,
             dpr,
           );
-
-          // Render link layer
           await this.renderLinkLayer(
             docPtr,
             pagePtr,
@@ -268,11 +339,13 @@ export class PdfRenderer {
       const topPtr = pdfiumModule._malloc(8);
       const rightPtr = pdfiumModule._malloc(8);
       const bottomPtr = pdfiumModule._malloc(8);
-
       const textBufferSize = 1000;
       const textBufferPtr = pdfiumModule._malloc(textBufferSize * 2);
 
       try {
+        // Phase 1: create all spans and collect geometry (writes only — no reads)
+        const spanData: { span: HTMLSpanElement; pdfWidth: number }[] = [];
+
         for (let rectIndex = 0; rectIndex < rectCount; rectIndex++) {
           const success = this.pdfium.FPDFText_GetRect(
             textPagePtr,
@@ -282,7 +355,6 @@ export class PdfRenderer {
             rightPtr,
             bottomPtr,
           );
-
           if (!success) continue;
 
           const left = pdfiumModule.HEAPF64[leftPtr >> 3];
@@ -299,30 +371,35 @@ export class PdfRenderer {
             textBufferPtr,
             textBufferSize,
           );
+          if (textLength <= 1) continue;
 
-          if (textLength > 1) {
-            const text = this.pdfium.pdfium.UTF16ToString(textBufferPtr);
+          const text = this.pdfium.pdfium.UTF16ToString(textBufferPtr);
+          const textSpan = textLayerDiv.createEl("span");
+          textSpan.textContent = text;
 
-            const textSpan = textLayerDiv.createEl("span");
-            textSpan.textContent = text;
+          const x = left * scale;
+          const y = (pageHeight - top) * scale;
+          const fontSize = (top - bottom) * scale;
+          const pdfWidth = (right - left) * scale;
 
-            const x = left * scale;
-            const y = (pageHeight - top) * scale;
-            const fontSize = (top - bottom) * scale;
-            const pdfWidth = (right - left) * scale;
+          textSpan.style.left = `${x}px`;
+          textSpan.style.top = `${y}px`;
+          textSpan.style.fontSize = `${fontSize}px`;
 
-            textSpan.style.left = `${x}px`;
-            textSpan.style.top = `${y}px`;
-            textSpan.style.fontSize = `${fontSize}px`;
+          spanData.push({ span: textSpan, pdfWidth });
+        }
 
-            const naturalWidth = textSpan.offsetWidth;
+        // Phase 2: batch-read all naturalWidths — one reflow for all spans
+        const naturalWidths = spanData.map(({ span }) => span.offsetWidth);
 
-            if (naturalWidth > 0) {
-              const scaleX = pdfWidth / naturalWidth;
-              textSpan.style.transform = `scaleX(${scaleX})`;
-              textSpan.style.width = `${pdfWidth}px`;
-              textSpan.style.transformOrigin = "0 0";
-            }
+        // Phase 3: apply scaleX transforms (writes only — no additional reflow)
+        for (let i = 0; i < spanData.length; i++) {
+          const { span, pdfWidth } = spanData[i];
+          const naturalWidth = naturalWidths[i];
+          if (naturalWidth > 0) {
+            span.style.transform = `scaleX(${pdfWidth / naturalWidth})`;
+            span.style.width = `${pdfWidth}px`;
+            span.style.transformOrigin = "0 0";
           }
         }
       } finally {
@@ -354,9 +431,9 @@ export class PdfRenderer {
     const pdfiumModule = this.pdfium.pdfium as any;
     const linkLayerDiv = pageContainer.createDiv("linkLayer");
 
-    const rectBuffer = pdfiumModule._malloc(16); // FS_RECTF: 4 floats * 4 bytes
-    const posPtr = pdfiumModule._malloc(4); // int for startPos
-    const linkPtr = pdfiumModule._malloc(4); // FPDF_LINK pointer
+    const rectBuffer = pdfiumModule._malloc(16);
+    const posPtr = pdfiumModule._malloc(4);
+    const linkPtr = pdfiumModule._malloc(4);
     const urlBufferSize = 2048;
     const urlBufferPtr = pdfiumModule._malloc(urlBufferSize);
 
@@ -550,6 +627,4 @@ export class PdfRenderer {
       pdfiumModule._free(zoomPtr);
     }
   }
-
-  cleanup(): void {}
 }

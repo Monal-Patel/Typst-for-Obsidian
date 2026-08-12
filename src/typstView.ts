@@ -21,6 +21,7 @@ export class TypstView extends TextFileView {
   private currentMode: "source" | "reading" = "source";
   private typstEditor: TypstEditor | null = null;
   private fileContent: string = "";
+  private lastPdfHash: number = 0;
   private plugin: TypstForObsidian;
   private pdfRenderer: PdfRenderer;
   private actionBar: ViewActionBar | null = null;
@@ -88,6 +89,7 @@ export class TypstView extends TextFileView {
 
   onClose(): Promise<void> {
     this.cleanupEditor();
+    this.pdfRenderer.cleanup();
     this.actionBar?.destroy();
     this.stateManager.clear();
     this.compilationManager.destroy();
@@ -388,7 +390,7 @@ export class TypstView extends TextFileView {
     if (this.currentMode === "source") {
       await this.switchToReadingMode();
     } else {
-      this.switchToSourceMode();
+      await this.switchToSourceMode();
     }
   }
 
@@ -444,11 +446,11 @@ export class TypstView extends TextFileView {
     await this.showReadingMode(pdfData);
   }
 
-  private switchToSourceMode(): void {
+  private async switchToSourceMode(): Promise<void> {
     this.saveEditorState();
 
     this.setMode("source");
-    this.showSourceMode();
+    await this.showSourceMode();
     this.restoreEditorState();
   }
 
@@ -597,7 +599,7 @@ export class TypstView extends TextFileView {
     this.typstEditor?.insertSnippet(snippetText);
   }
 
-  public showSourceMode(): void {
+  public async showSourceMode(): Promise<void> {
     const contentEl = this.getContentElement();
     if (!contentEl) return;
 
@@ -613,9 +615,11 @@ export class TypstView extends TextFileView {
       },
     );
 
-    this.typstEditor.initialize(this.fileContent).catch((err) => {
+    try {
+      await this.typstEditor.initialize(this.fileContent);
+    } catch (err) {
       console.error("Failed to initialize Typst editor:", err);
-    });
+    }
   }
 
   private handleContentChange(content: string): void {
@@ -648,10 +652,50 @@ export class TypstView extends TextFileView {
     this.stateManager.restoreEditorState(this.typstEditor);
   }
 
+  private computePdfHash(pdfData: Uint8Array): number {
+    const len = pdfData.length;
+    let hash = len;
+    const indices = [
+      0,
+      Math.floor(len / 4),
+      Math.floor(len / 2),
+      Math.floor((3 * len) / 4),
+      len - 1,
+    ];
+    for (const i of indices) {
+      if (i >= 0 && i < len) {
+        hash = (((hash << 5) ^ hash ^ pdfData[i]) >>> 0);
+      }
+    }
+    return hash;
+  }
+
+  private restoreReadingScroll(contentEl: HTMLElement): void {
+    const savedRatio = this.stateManager.getSavedReadingScrollRatio();
+    if (savedRatio > 0) {
+      requestAnimationFrame(() => {
+        const maxScroll = contentEl.scrollHeight - contentEl.clientHeight;
+        if (maxScroll > 0) {
+          contentEl.scrollTop = savedRatio * maxScroll;
+        }
+      });
+    }
+  }
+
   private async showReadingMode(pdfData: Uint8Array): Promise<void> {
     const contentEl = this.getContentElement();
     if (!contentEl) return;
 
+    const newHash = this.computePdfHash(pdfData);
+    const existingReadingDiv = contentEl.querySelector(".typst-reading-mode");
+
+    if (newHash === this.lastPdfHash && existingReadingDiv) {
+      this.restoreReadingScroll(contentEl);
+      return;
+    }
+
+    this.lastPdfHash = newHash;
+    this.pdfRenderer.cleanup();
     contentEl.empty();
     this.cleanupEditor();
 
@@ -672,17 +716,7 @@ export class TypstView extends TextFileView {
           }
         },
       );
-      const savedScroll = this.stateManager.getSavedReadingScrollTop();
-
-      if (savedScroll > 0) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (contentEl) {
-              contentEl.scrollTop = savedScroll;
-            }
-          });
-        });
-      }
+      this.restoreReadingScroll(contentEl);
     } catch (error) {
       console.error("PDF rendering failed:", error);
     }
